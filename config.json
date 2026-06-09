@@ -1,0 +1,8 @@
+{
+  "navigationItems": [
+    { "label": "PDF", "file": "html/pages/start.html" },
+    { "label": "Themen", "file": "html/pages/topics.html" },
+    { "label": "Quiz", "file": "html/pages/quiz.html" },
+    { "label": "Klausur", "file": "html/pages/exam.html" }
+  ]
+}

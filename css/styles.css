@@ -1,0 +1,87 @@
+:root {
+  /* Primary Accent - Blue */
+  --primary: #3498db;
+  --primary-hover: #2980b9;
+
+  /* Background */
+  --bg-primary: #0f0f0f;
+  --bg-secondary: #1a1a1a;
+  --bg-tertiary: #2d2d2d;
+
+  /* Text */
+  --text-primary: #e0e0e0;
+  --text-secondary: #a0a0a0;
+  --text-hover: #3498db;
+  
+  /* Borders & Accents */
+  --border: #2d2d2d;
+  
+  /* Gradient Main */
+  --gradient-main: linear-gradient(to bottom, #0f0f0f 0%, #1a2332 50%, #2d3e50 100%);
+}
+
+body {
+  background: var(--gradient-main);
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+}
+
+#navBar {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+
+  width: 100%;
+}
+
+#navBarList {
+  display: flex;
+  gap: 2rem;
+  list-style: none;
+}
+
+#navBarList li {
+  color: var(--text-primary);
+  font-size: 1.5rem;
+}
+
+#navBarList li:hover {
+  color: var(--text-hover);
+  cursor: pointer;
+}
+
+.pageTitle {
+  font-size: 3rem;
+  color: var(--text-primary)
+}
+
+#topicsPage {
+  display:flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem;
+  flex: 1;
+}
+
+#topicBoard {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  width: 50vw;
+  margin: 0 auto;
+}
+
+.topicCard {
+  aspect-ratio: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+
+  background: var(--bg-tertiary);
+  color: var(--text-primary)
+  
+}
