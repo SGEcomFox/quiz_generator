@@ -1,7 +1,8 @@
 // API utility for communicating with the backend
 class QuizAPI {
-  constructor(baseURL = 'http://localhost:3000') {
+  constructor(baseURL = 'http://localhost:3000', model = 'gpt-5-nano') {
     this.baseURL = baseURL;
+    this.model = model;
   }
 
   async request(endpoint, data) {
@@ -32,11 +33,12 @@ class QuizAPI {
   }
 
   // Generate a single question
-  async generateQuestion(topic, content, questionType = 'multipleChoice') {
+  async generateQuestion(sessionId, topic, questionType = 'multipleChoice', selectedTopics = []) {
     return this.request('/api/generate-question', {
+      sessionId,
       topic,
-      content,
       questionType,
+      selectedTopics,
     });
   }
 

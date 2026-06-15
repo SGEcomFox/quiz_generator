@@ -1,13 +1,54 @@
 const http = require('http');
 const url = require('url');
-const { OpenAI } = require('openai');
-require('dotenv').config();
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+const fs = require('fs');
+const path = require('path');
+const openaiService = require('./services/openaiService');
 
 const PORT = process.env.PORT || 3000;
+
+// Session storage for PDF data and topic content
+const sessions = {};
+const SESSION_TIMEOUT = 60 * 60 * 1000; // 1 hour
+
+// Generate unique session ID
+function generateSessionId() {
+  return Date.now().toString(36) + Math.random().toString(36).substr(2);
+}
+
+// Clean up expired sessions
+setInterval(() => {
+  const now = Date.now();
+  Object.keys(sessions).forEach(sessionId => {
+    if (now - sessions[sessionId].createdAt > SESSION_TIMEOUT) {
+      delete sessions[sessionId];
+      console.log(`Cleaned up expired session: ${sessionId}`);
+    }
+  });
+}, 5 * 60 * 1000); // Check every 5 minutes
+
+// Serve static files
+function serveStaticFile(filePath, res) {
+  const fullPath = path.join(__dirname, '..', filePath);
+  try {
+    const content = fs.readFileSync(fullPath);
+    const ext = path.extname(filePath);
+    const mimeTypes = {
+      '.html': 'text/html',
+      '.css': 'text/css',
+      '.js': 'text/javascript',
+      '.json': 'application/json',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.gif': 'image/gif',
+    };
+    res.setHeader('Content-Type', mimeTypes[ext] || 'text/plain');
+    res.writeHead(200);
+    res.end(content);
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
 
 // Parse request body
 async function parseRequestBody(req) {
@@ -44,123 +85,90 @@ const server = http.createServer(async (req, res) => {
 
   const parsedUrl = url.parse(req.url, true);
   const pathname = parsedUrl.pathname;
+  
+  console.log(`[${req.method}] ${pathname}`);  // Debug logging
+
+  // Serve static files for non-API requests
+  if (!pathname.startsWith('/api/')) {
+    let fileToServe = pathname === '/' ? '/index.html' : pathname;
+    if (serveStaticFile(fileToServe, res)) {
+      return;
+    }
+  }
 
   try {
     // Generate Topics
     if (pathname === '/api/generate-topics' && req.method === 'POST') {
       const body = await parseRequestBody(req);
-      const { pdfText } = body;
-
-      if (!pdfText) {
-        res.writeHead(400);
-        res.end(JSON.stringify({ error: 'pdfText is required' }));
-        return;
-      }
-
-      const response = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'user',
-            content: `Extract the main topics from this lecture material. Return a JSON object with this structure:
-{
-  "topics": [
-    {
-      "id": "topic_1",
-      "name": "Topic Name",
-      "description": "Brief description",
-      "keyPoints": ["point1", "point2"]
-    }
-  ]
-}
-
-Lecture material:
-${pdfText}`,
-          },
-        ],
-      });
-
-      const topicsData = JSON.parse(response.choices[0].message.content);
+      console.log('Generating topics from PDF...');
+      const topicsData = await openaiService.generateTopics(body.pdfText);
+      
+      // Extract relevant content for each topic
+      console.log('Extracting topic content...');
+      const topicContentData = await openaiService.extractTopicContent(body.pdfText, topicsData.topics);
+      
+      // Create session and store PDF + topic content
+      const sessionId = generateSessionId();
+      sessions[sessionId] = {
+        pdfText: body.pdfText,
+        topics: topicsData.topics,
+        topicContent: topicContentData.topicContent,
+        createdAt: Date.now()
+      };
+      
+      console.log(`Created session: ${sessionId}`);
       res.writeHead(200);
-      res.end(JSON.stringify(topicsData));
+      res.end(JSON.stringify({
+        ...topicsData,
+        sessionId
+      }));
       return;
     }
 
     // Generate Question
     if (pathname === '/api/generate-question' && req.method === 'POST') {
       const body = await parseRequestBody(req);
-      const { topic, content, questionType } = body;
-
-      if (!topic || !content) {
+      
+      if (!body.sessionId) {
         res.writeHead(400);
-        res.end(JSON.stringify({ error: 'topic and content are required' }));
+        res.end(JSON.stringify({ error: 'sessionId is required' }));
         return;
       }
-
-      const response = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'user',
-            content: `Generate a ${questionType || 'multiple choice'} question based on this topic and content.
-Topic: ${topic}
-Content: ${content}
-
-Return JSON with this structure:
-{
-  "question": "The question text",
-  "type": "${questionType || 'multipleChoice'}",
-  "options": ["option1", "option2", "option3", "option4"],
-  "correctAnswer": "correct option text",
-  "explanation": "Brief explanation"
-}`,
-          },
-        ],
-      });
-
-      const questionData = JSON.parse(response.choices[0].message.content);
-      res.writeHead(200);
-      res.end(JSON.stringify(questionData));
-      return;
-    }
-
-    // Grade Exam
-    if (pathname === '/api/grade-exam' && req.method === 'POST') {
-      const body = await parseRequestBody(req);
-      const { answers } = body;
-
-      if (!answers) {
-        res.writeHead(400);
-        res.end(JSON.stringify({ error: 'answers are required' }));
+      
+      const session = sessions[body.sessionId];
+      if (!session) {
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: 'Session not found or expired' }));
         return;
       }
-
-      const response = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'user',
-            content: `Grade these exam answers and provide feedback.
-Answers: ${JSON.stringify(answers)}
-
-Return JSON with this structure:
-{
-  "score": 0-100,
-  "stars": 0-3,
-  "feedback": "Overall feedback",
-  "strengths": ["strength1", "strength2"],
-  "weaknesses": ["weakness1", "weakness2"]
-}`,
-          },
-        ],
-      });
-
-      const gradeData = JSON.parse(response.choices[0].message.content);
+      
+      if (!body.topic) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'topic is required' }));
+        return;
+      }
+      
+      // Get relevant content for this topic
+      const relevantContent = session.topicContent[body.topic.name] || '';
+      if (!relevantContent) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: `No content found for topic: ${body.topic.name}` }));
+        return;
+      }
+      
+      const questionType = body.questionType || 'multipleChoice';
+      const selectedTopics = body.selectedTopics || [];
+      
+      console.log(`Generating ${questionType} question for topic: ${body.topic.name}`);
+      const question = await openaiService.generateQuestion(
+        relevantContent,
+        body.topic,
+        questionType,
+        selectedTopics
+      );
+      
       res.writeHead(200);
-      res.end(JSON.stringify(gradeData));
+      res.end(JSON.stringify(question));
       return;
     }
 
@@ -169,11 +177,16 @@ Return JSON with this structure:
     res.end(JSON.stringify({ error: 'Endpoint not found' }));
   } catch (error) {
     console.error('Server error:', error);
-    res.writeHead(500);
-    res.end(JSON.stringify({ error: error.message }));
+    if (error.message.includes('is required')) {
+      res.writeHead(400);
+      res.end(JSON.stringify({ error: error.message }));
+    } else {
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: error.message }));
+    }
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
