@@ -54,32 +54,24 @@ function buildNavBar() {
   });
 }
 
-// Load content via Button press
 function loadContent(filePath, container) {
   fetch(filePath)
     .then(response => {
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       return response.text();
     })
     .then(html => {
       container.innerHTML = html;
-      
-      // Setup PDF uploader if start.html was loaded
-      if (filePath.includes('start.html')) {
-        setupPDFUploader();
+
+      // Show XP bars only on quiz page
+      const xpBarContainer = document.getElementById('xpBarContainer');
+      if (xpBarContainer) {
+        xpBarContainer.style.display = filePath.includes('quiz.html') ? 'flex' : 'none'; // 👈
       }
-      
-      // Setup topics page if topics.html was loaded
-      if (filePath.includes('topics.html')) {
-        setupTopicsPage();
-      }
-      
-      // Setup quiz page if quiz.html was loaded
-      if (filePath.includes('quiz.html')) {
-        setupQuizPage();
-      }
+
+      if (filePath.includes('start.html')) setupPDFUploader();
+      if (filePath.includes('topics.html')) setupTopicsPage();
+      if (filePath.includes('quiz.html')) setupQuizPage();
     })
     .catch(error => {
       console.error('Error loading content:', error);
@@ -92,32 +84,35 @@ function setupTopicsPage() {
   const topicBoard = document.getElementById('topicBoard');
   if (!topicBoard) return;
   
-  // Clear existing static cards
   topicBoard.innerHTML = '';
   
-  // If no topics are loaded, show a message
   if (!allTopics || allTopics.length === 0) {
     topicBoard.innerHTML = '<p>No topics loaded. Please upload a PDF first.</p>';
     return;
   }
   
-  // Create topic cards for each topic
   allTopics.forEach((topic) => {
     const topicCard = document.createElement('div');
-    topicCard.className = 'topicCard selected'; // Selected by default
+    
+    // Check if this topic is currently selected instead of always defaulting to selected
+    const isSelected = selectedTopics.some(t => t.id === topic.id); // 👈
+    topicCard.className = `topicCard ${isSelected ? 'selected' : 'deselected'}`; // 👈
+    
     topicCard.textContent = topic.name || topic.id;
     topicCard.dataset.topicId = topic.id;
     
-    // Add click handler for selection toggle
     topicCard.addEventListener('click', () => {
       toggleTopicSelection(topicCard, topic);
     });
     
     topicBoard.appendChild(topicCard);
+    initXPBar(topic);
   });
-  
-  // Initialize all topics as selected
-  selectedTopics = [...allTopics];
+
+  // Only initialize all topics as selected if selectedTopics is empty (first load)
+  if (selectedTopics.length === 0) { // 👈
+    selectedTopics = [...allTopics];
+  }
 }
 
 // Toggle topic selection state
@@ -129,11 +124,13 @@ function toggleTopicSelection(cardElement, topic) {
     cardElement.classList.remove('selected');
     cardElement.classList.add('deselected');
     selectedTopics = selectedTopics.filter(t => t.id !== topic.id);
+    removeXPBar(topic); 
   } else {
     // Select
     cardElement.classList.remove('deselected');
     cardElement.classList.add('selected');
     selectedTopics.push(topic);
+    initXPBar(topic);
   }
   
   console.log('Selected topics:', selectedTopics);
@@ -237,6 +234,10 @@ async function setupQuizPage() {
 // Single listener on the parent container
 
 async function handleGenerateQuestion() {
+  const qc = _qc();
+  if (qc) {
+    qc.dataset.answered = 'false'; // 👈 reset lock before loading new question
+  }
   try {
     // Check if a PDF session exists
     if (!window.currentPDF || !window.currentPDF.sessionId) {
@@ -255,7 +256,7 @@ async function handleGenerateQuestion() {
     
     console.log('Generating question for topic:', randomTopic.name);
     // Choose a concrete question type client-side to ensure diversity
-    const availableTypes = ['multipleChoice', 'freeText', 'gapText', 'truefalse'];
+    const availableTypes = ['multipleChoice', 'freeText', 'gapText', 'trueFalse'];
     const chosenType = availableTypes[Math.floor(Math.random() * availableTypes.length)];
 
     const questionData = await quizAPI.generateQuestion(
@@ -264,9 +265,9 @@ async function handleGenerateQuestion() {
       chosenType,
       selectedTopics
     );
-    
-    // Convert API response format to display function format
+
     const { question, type, options = [], correctAnswer, explanation } = questionData;
+    console.log('API response:', questionData);
 
     // Defensive handling: normalize and derive a concrete type if needed
     let normalizedType = (type && typeof type === 'string') ? type.toLowerCase() : '';
@@ -283,29 +284,110 @@ async function handleGenerateQuestion() {
     // Convert options array to answers array (extract text values)
     const answers = hasOptions ? options.map(opt => opt.text) : [];
 
-    // Convert correctAnswer ID to index (e.g., "a" -> 0, "b" -> 1)
-    const correctAnswerIndex = hasOptions ? options.findIndex(opt => opt.id === correctAnswer) : (typeof correctAnswer === 'number' ? correctAnswer : 0);
+    // For gapText, correctAnswer is already an array of gap fills — use it directly
+    const gapAnswers = Array.isArray(correctAnswer) ? correctAnswer : [correctAnswer].filter(Boolean);
 
-    // Call appropriate display function based on normalized question type
+    // Convert correctAnswer ID to index (e.g., "a" -> 0, "b" -> 1)
+    const correctAnswerIndex = hasOptions
+      ? options.findIndex(opt => opt.id === correctAnswer)
+      : (typeof correctAnswer === 'number' ? correctAnswer : 0);
+
     switch (normalizedType) {
-      case 'multiplechoice':
-        displayMultipleChoice(question, answers, correctAnswerIndex, explanation, randomTopic.name);
-        break;
-      case 'freetext':
-        displayFreeText(question, correctAnswerIndex, explanation, randomTopic.name);
-        break;
-      case 'gaptext':
-        displayGapText(question, answers, explanation, randomTopic.name);
-        break;
-      case 'truefalse':
-        displayTrueFalse(question, correctAnswerIndex, explanation, randomTopic.name);
-        break;
-      default:
-        console.error('Unknown question type after normalization:', normalizedType);
-        alert('Unknown question type received');
-    }
+  case 'multiplechoice':
+    displayMultipleChoice(
+      question,
+      options.map(opt => opt.text),          // ["Option A", "Option B", ...]
+      options.findIndex(opt => opt.id === correctAnswer), // "a" -> 0
+      explanation,
+      randomTopic.name
+    );
+    break;
+
+  case 'freetext':
+    displayFreeText(
+      question,
+      correctAnswer,                          // string e.g. "PDF-Parser"
+      explanation,
+      randomTopic.name
+    );
+    break;
+
+  case 'gaptext':
+    displayGapText(
+      question,                               // "sentence with {0} and {1}"
+      correctAnswer,                          // ["word0", "word1"]
+      explanation,
+      randomTopic.name
+    );
+    break;
+
+  case 'truefalse':
+  displayTrueFalse(
+    question,
+    correctAnswer,  // now "true" or "false" instead of "a" or "b"
+    explanation,
+    randomTopic.name
+  );
+    break;
+}
   } catch (error) {
     console.error('Error generating question:', error);
     alert('Error generating question: ' + error.message);
   }
+}
+
+const topicXP = {};
+
+function initXPBar(topic) {
+  // Only initialize if not already tracked
+  if (!topicXP[topic.id]) {
+    topicXP[topic.id] = { current: 0, max: 100 };
+  }
+
+  const container = document.getElementById('xpBarContainer');
+  if (!container) return;
+
+  // Don't add duplicate bars
+  if (document.getElementById(`xp-bar-${topic.id}`)) return;
+
+  const bar = document.createElement('div');
+  bar.className = 'xp-bar-wrapper';
+  bar.id = `xp-bar-${topic.id}`;
+  bar.innerHTML = `
+    <span class="xp-label">${topic.name}</span>
+    <div class="xp-track">
+      <div class="xp-fill" style="width: ${getXPPercent(topic.id)}%"></div>
+    </div>
+    <span class="xp-value">${topicXP[topic.id].current} / ${topicXP[topic.id].max}</span>
+  `;
+  container.appendChild(bar);
+}
+
+function removeXPBar(topic) {
+  const bar = document.getElementById(`xp-bar-${topic.id}`);
+  if (bar) bar.remove();
+  // Note: we keep topicXP[topic.id] in memory so XP is restored if reselected
+}
+
+function addXP(topic, amount) {
+  if (!topicXP[topic.id]) return;
+  topicXP[topic.id].current = Math.min(
+    topicXP[topic.id].current + amount,
+    topicXP[topic.id].max
+  );
+  updateXPBar(topic);
+}
+
+function updateXPBar(topic) {
+  const fill = document.querySelector(`#xp-bar-${topic.id} .xp-fill`);
+  const value = document.querySelector(`#xp-bar-${topic.id} .xp-value`);
+  if (!fill || !value) return;
+  fill.style.width = `${getXPPercent(topic.id)}%`;
+  value.textContent = `${topicXP[topic.id].current} / ${topicXP[topic.id].max}`;
+}
+
+function getXPPercent(topicId) {
+  const xp = topicXP[topicId];
+  if (!xp) return 0;
+  return Math.round((xp.current / xp.max) * 100);
 }

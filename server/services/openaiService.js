@@ -43,7 +43,7 @@ async function extractFromText(pdfText, topics) {
   const topicNames = topics.map(t => t.name).join(', ');
   
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: 'gpt-5-nano',
     response_format: { type: 'json_object' },
     messages: [
       {
@@ -90,7 +90,7 @@ async function extractChunked(pdfText, topics, chunkSize) {
     console.log(`Extracting from chunk ${i + 1}/${chunks.length}...`);
     
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-5-nano',
       response_format: { type: 'json_object' },
       messages: [
         {
@@ -155,66 +155,140 @@ async function extractTopicContent(pdfText, topics) {
   return extractChunked(pdfText, topics, CHUNK_SIZE);
 }
 
-// Generate a question based on topic and selected topics
 async function generateQuestion(relevantContent, topic, questionType = 'auto', selectedTopics = []) {
-  if (!relevantContent) {
-    throw new Error('relevantContent is required');
-  }
-  if (!topic) {
-    throw new Error('topic is required');
-  }
+  if (!relevantContent) throw new Error('relevantContent is required');
+  if (!topic) throw new Error('topic is required');
+
+  const availableTypes = ['multipleChoice', 'freeText', 'gapText', 'trueFalse'];
+  const chosenType = questionType === 'auto'
+    ? availableTypes[Math.floor(Math.random() * availableTypes.length)]
+    : questionType;
 
   const topicsContext = selectedTopics.length > 0
-    ? `Focus ONLY on these topics: ${selectedTopics.map(t => t.name).join(', ')}.\n`
+    ? `Focus ONLY on these topics: ${selectedTopics.map(t => t.name).join(', ')}.`
     : '';
 
-  // If questionType is 'auto', pick a concrete type server-side to ensure variety
-  const availableTypes = ['multipleChoice', 'freeText', 'gapText', 'trueFalse'];
-  let chosenType = questionType;
-  if (questionType === 'auto') {
-    // simple uniform random choice among available types
-    chosenType = availableTypes[Math.floor(Math.random() * availableTypes.length)];
-  }
+  // Define one function per question type so the schema is unambiguous
+  const tools = {
+    multipleChoice: {
+      name: 'display_multiple_choice',
+      description: 'Display a multiple choice question with 4 options to the user.',
+      parameters: {
+        type: 'object',
+        properties: {
+          question:      { type: 'string', description: 'The question text' },
+          options:       {
+            type: 'array',
+            description: 'Exactly 4 answer options',
+            items: {
+              type: 'object',
+              properties: {
+                id:   { type: 'string', enum: ['a', 'b', 'c', 'd'] },
+                text: { type: 'string' }
+              },
+              required: ['id', 'text'],
+              additionalProperties: false
+            }
+          },
+          correctAnswer: { type: 'string', enum: ['a', 'b', 'c', 'd'], description: 'ID of the correct option' },
+          explanation:   { type: 'string', description: 'Why this answer is correct' }
+        },
+        required: ['question', 'options', 'correctAnswer', 'explanation'],
+        additionalProperties: false
+      }
+    },
 
-  const typeInstruction = `Generate a ${chosenType} question`;
+    freeText: {
+      name: 'display_free_text',
+      description: 'Display an open-ended question where the user types a free answer.',
+      parameters: {
+        type: 'object',
+        properties: {
+          question:      { type: 'string', description: 'The question text' },
+          correctAnswer: { type: 'string', description: 'The expected answer' },
+          explanation:   { type: 'string', description: 'Why this answer is correct' }
+        },
+        required: ['question', 'correctAnswer', 'explanation'],
+        additionalProperties: false
+      }
+    },
+
+    gapText: {
+      name: 'display_gap_text',
+      description: 'Display a fill-in-the-blank question. Blanks in the question are marked as {0}, {1}, {2} etc.',
+      parameters: {
+        type: 'object',
+        properties: {
+          question: {
+            type: 'string',
+            description: 'A sentence with {0}, {1}, {2} etc. as placeholders. Example: "The capital of {0} is {1}."'
+          },
+          correctAnswer: {
+            type: 'array',
+            description: 'Array of words filling each gap in order. Example: ["France", "Paris"]',
+            items: { type: 'string' }
+          },
+          explanation: { type: 'string', description: 'Why these answers are correct' }
+        },
+        required: ['question', 'correctAnswer', 'explanation'],
+        additionalProperties: false
+      }
+    },
+
+    trueFalse: {
+      name: 'display_true_false',
+      description: 'Display a true/false question.',
+      parameters: {
+        type: 'object',
+        properties: {
+          question:      { type: 'string', description: 'A statement that is either true or false' },
+          correctAnswer: { type: 'string', enum: ['true', 'false'], description: 'Whether the statement is true or false' },
+          explanation:   { type: 'string', description: 'Why the statement is true or false' }
+        },
+        required: ['question', 'correctAnswer', 'explanation'],
+        additionalProperties: false
+      }
+    }
+  };
+
+  const selectedTool = tools[chosenType];
 
   const response = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
-    response_format: { type: 'json_object' },
     messages: [
       {
+        role: 'system',
+        content: `You are a quiz generator. You MUST call the provided function to display the question. Never respond with plain text.`
+      },
+      {
         role: 'user',
-        content: `${topicsContext}${typeInstruction} based ONLY on the material provided below about "${topic.name}".
+        content: `${topicsContext}
+Generate a ${chosenType} question based ONLY on the material below about "${topic.name}".
 
 Material:
-${relevantContent}
-
-Return a JSON object with EXACTLY this structure:
-{
-  "question": "The question text",
-  "type": "multipleChoice",
-  "options": [
-    {"id": "a", "text": "Option A"},
-    {"id": "b", "text": "Option B"},
-    {"id": "c", "text": "Option C"},
-    {"id": "d", "text": "Option D"}
-  ],
-  "correctAnswer": "a",
-  "explanation": "Why this answer is correct"
-}
-
-IMPORTANT: The "type" field MUST be exactly one of: "multipleChoice", "freeText", "gapText", or "trueFalse"
-For freeText and gapText types, still include options or leave as empty array if not applicable.`,
-      },
+${relevantContent}`
+      }
     ],
+    tools: [{ type: 'function', function: selectedTool }],
+    tool_choice: { type: 'function', function: { name: selectedTool.name } }
   });
 
-  const parsed = JSON.parse(response.choices[0].message.content);
-  // Ensure the returned type matches the chosen type
-  if (!parsed.type || parsed.type.toLowerCase() !== chosenType.toLowerCase()) {
-    parsed.type = chosenType;
-  }
-  return parsed;
+  const toolCall = response.choices[0].message.tool_calls?.[0];
+  if (!toolCall) throw new Error('Model did not call the function');
+
+  console.log('Function called:', toolCall.function.name);
+  console.log('Function arguments:', toolCall.function.arguments);
+
+  const args = JSON.parse(toolCall.function.arguments);
+
+  // Normalize to a consistent shape for handleGenerateQuestion
+  return {
+    type: chosenType,
+    question: args.question,
+    options: args.options ?? [],
+    correctAnswer: args.correctAnswer,
+    explanation: args.explanation
+  };
 }
 
 module.exports = {

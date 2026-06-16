@@ -46,6 +46,7 @@ function displayFreeText(question, correctAnswer, explanation, topic) {
 }
 
 function displayGapText(question, answers, explanation, topic) {
+    console.log('displayGapText received:', { question, answers, explanation, topic }); // 👈
     fetch('../html/QuizModes/gapText.html')
         .then(response => response.text())
         .then(html => {
@@ -91,72 +92,141 @@ function displayTrueFalse(question, correctAnswer, explanation, topic) {
 }
 
 //Handle Quiz-Answers
-
 function handleMultipleChoiceAnswer(button) {
     const qc = _qc();
     if (!qc) return;
-    // Get the correct answer from stored data
-    const correctAnswer = qc.dataset.correctAnswer;
+    if (qc.dataset.answered === 'true') return; 
+    lockQuestion(qc);
+
+    const correctAnswer = Number(qc.dataset.correctAnswer); // stored as index (0,1,2,3)
     const explanation = qc.dataset.explanation;
-    
-    // TODO: Implement logic to check answer, provide feedback, etc.
-    console.log('Multiple Choice answer clicked:', button.textContent);
+    const topic = allTopics.find(t => t.name === qc.dataset.topic);
+
+    // Find which index was clicked
+    const buttons = Array.from(qc.querySelectorAll('.mc-answer')); // adjust selector to match your HTML
+    const clickedIndex = buttons.indexOf(button);
+    const correct = clickedIndex === correctAnswer;
+
+    // Highlight correct and wrong
+    buttons.forEach((btn, index) => {
+        if (index === correctAnswer) {
+            btn.classList.add('correct');
+        } else if (btn === button && !correct) {
+            btn.classList.add('incorrect');
+        }
+        btn.disabled = true; // prevent clicking again
+    });
+
+    // Show explanation
+    showExplanation(qc, correct, explanation);
+
+    if (correct && topic) {
+        addXP(topic, 10); // 👈
+    }
 }
 
 function handleTrueFalseAnswer(button) {
     const qc = _qc();
     if (!qc) return;
-    // Get the correct answer from stored data
-    const correctAnswer = qc.dataset.correctAnswer;
+    if (qc.dataset.answered === 'true') return; 
+    lockQuestion(qc);   
+
+    const correctAnswer = qc.dataset.correctAnswer; // "true" or "false"
     const explanation = qc.dataset.explanation;
-    
-    // TODO: Implement logic to check answer, provide feedback, etc.
-    console.log('True/False answer clicked:', button.textContent);
+    const topic = allTopics.find(t => t.name === qc.dataset.topic); // 👈
+
+    const clicked = button.textContent.toLowerCase(); // "true" or "false"
+    const correct = clicked === correctAnswer;
+
+    // Highlight buttons
+    const buttons = Array.from(qc.querySelectorAll('.tf-answer')); // adjust selector to match your HTML
+    buttons.forEach(btn => {
+        if (btn.textContent.toLowerCase() === correctAnswer) {
+            btn.classList.add('correct');
+        } else if (btn === button && !correct) {
+            btn.classList.add('incorrect');
+        }
+        btn.disabled = true;
+    });
+
+
+    if (correct && topic) {
+        addXP(topic, 10); 
+    }
+
+    showExplanation(qc, correct, explanation);
 }
 
+
 function handleFreeTextSubmit() {
-        const qc = _qc();
-        if (!qc) return;
-        const answerInput = document.getElementById('freeTextAnswer');
-        if (!answerInput) return;
-        const userAnswer = answerInput.value.trim();
-    
-        // Get stored quiz data
-        const correctAnswer = qc.dataset.correctAnswer;
-        const explanation = qc.dataset.explanation;
-    
-        // Simple comparison (case-insensitive)
-        const correct = String(userAnswer).toLowerCase() === String(correctAnswer).toLowerCase();
-        const resultEl = qc.querySelector('.explanation') || (() => {
-            const e = document.createElement('div'); e.className = 'explanation'; qc.appendChild(e); return e;
-        })();
-        resultEl.textContent = correct ? 'Correct. ' + (explanation || '') : 'Incorrect. ' + (explanation || '');
-        console.log('Free Text answer submitted:', userAnswer, 'correct=', correct);
+    const qc = _qc();
+    if (!qc) return;
+    const answerInput = document.getElementById('freeTextAnswer');
+    if (!answerInput) return;
+    const userAnswer = answerInput.value.trim();
+
+    // Get stored quiz data
+    const correctAnswer = qc.dataset.correctAnswer;
+    const explanation = qc.dataset.explanation;
+
+    // Simple comparison (case-insensitive)
+    const correct = String(userAnswer).toLowerCase() === String(correctAnswer).toLowerCase();
+    const resultEl = qc.querySelector('.explanation') || (() => {
+        const e = document.createElement('div'); e.className = 'explanation'; qc.appendChild(e); return e;
+    })();
+    resultEl.textContent = correct ? 'Correct. ' + (explanation || '') : 'Incorrect. ' + (explanation || '');
+    console.log('Free Text answer submitted:', userAnswer, 'correct=', correct);
 }
 
 function handleGapTextSubmit() {
-        const qc = _qc();
-        if (!qc) return;
+    const qc = _qc();
+    if (!qc) return;
+    if (qc.dataset.answered === 'true') return; // 👈
+    lockQuestion(qc);    
 
-        // Collect inputs inserted into the question
-        const inputs = qc.querySelectorAll('.gap-input');
-        const userAnswers = Array.from(inputs).sort((a,b) => Number(a.dataset.index) - Number(b.dataset.index)).map(i => i.value.trim());
+    // Collect inputs inserted into the question
+    const inputs = qc.querySelectorAll('.gap-input');
+    const userAnswers = Array.from(inputs).sort((a,b) => Number(a.dataset.index) - Number(b.dataset.index)).map(i => i.value.trim());
 
-        // Get stored quiz data (array of correct answers)
-        const correctAnswers = JSON.parse(qc.dataset.correctAnswers || '[]');
-        const explanation = qc.dataset.explanation;
+    // Get stored quiz data (array of correct answers)
+    const correctAnswers = JSON.parse(qc.dataset.correctAnswers || '[]');
+    const explanation = qc.dataset.explanation;
+    const topic = allTopics.find(t => t.name === qc.dataset.topic);
 
-        // Compare answers (case-insensitive, trimmed)
-        let allCorrect = true;
-        for (let i = 0; i < correctAnswers.length; i++) {
-            const expected = String(correctAnswers[i] || '').toLowerCase().trim();
-            const actual = String(userAnswers[i] || '').toLowerCase().trim();
-            if (expected !== actual) { allCorrect = false; break; }
-        }
+    // Compare answers (case-insensitive, trimmed)
+    let allCorrect = true;
+    for (let i = 0; i < correctAnswers.length; i++) {
+        const expected = String(correctAnswers[i] || '').toLowerCase().trim();
+        const actual = String(userAnswers[i] || '').toLowerCase().trim();
+        if (expected !== actual) { allCorrect = false; break; }
+    }
 
-        const resultEl = qc.querySelector('.explanation') || (() => {
-            const e = document.createElement('div'); e.className = 'explanation'; qc.appendChild(e); return e;
-        })();
-        resultEl.textContent = allCorrect ? 'Correct. ' + (explanation || '') : 'Incorrect. ' + (explanation || '');
-        console.log('Gap Text answers submitted:', userAnswers, 'allCorrect=', allCorrect);
+    const resultEl = qc.querySelector('.explanation') || (() => {
+        const e = document.createElement('div'); e.className = 'explanation'; qc.appendChild(e); return e;
+    })();
+    resultEl.textContent = allCorrect ? 'Correct. ' + (explanation || '') : 'Incorrect. ' + (explanation || '');
+    console.log('Gap Text answers submitted:', userAnswers, 'allCorrect=', allCorrect);
+
+    if (correct) {
+        addXP(currentTopic, 10); // 👈 you'll need to track currentTopic
+    }
+}
+
+// Shared helper to show explanation below the question
+function showExplanation(qc, correct, explanation) {
+    let resultEl = qc.querySelector('.explanation');
+    if (!resultEl) {
+        resultEl = document.createElement('div');
+        resultEl.className = 'explanation';
+        qc.appendChild(resultEl);
+    }
+    resultEl.textContent = (correct ? '✓ Correct. ' : '✗ Incorrect. ') + (explanation || '');
+    resultEl.classList.add(correct ? 'correct' : 'incorrect');
+}
+
+function lockQuestion(qc) {
+    qc.dataset.answered = 'true';
+    
+    // Disable all interactive elements
+    qc.querySelectorAll('button, input').forEach(el => el.disabled = true);
 }

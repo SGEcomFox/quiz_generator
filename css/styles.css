@@ -25,6 +25,8 @@ body {
   min-height: 100vh;
   margin: 0;
   padding: 0;
+  display: flex;          /* 👈 */
+  flex-direction: column; /* 👈 */
 }
 
 #navBar {
@@ -57,11 +59,37 @@ body {
   color: var(--text-primary)
 }
 
+#mainContent {
+  display: flex;
+  flex: 1;                /* 👈 takes up all remaining space below navbar */
+}
+
+#startPage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem;
+  flex: 1;                /* 👈 fills mainContent */
+}
+
+#uploadPDF {
+  width: 15em;
+  height: 5em;
+
+  background: var(--primary);
+  box-shadow: 0 0 10px var(--primary);
+  color: var(--text-primary);
+
+  border: 2px solid var(--primary);
+  border-radius: 8px;  
+}
+
 #topicsPage {
   display:flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: start;
   gap: 2rem;
   flex: 1;
 }
@@ -99,6 +127,8 @@ body {
   opacity: 0.6;
   border-color: var(--text-secondary);
 }
+
+
 
 #nextQuestionBtn {
   width: 15em;
@@ -220,5 +250,83 @@ body {
   #topicBoard { grid-template-columns: repeat(2, 1fr); width: 90vw; }
   .MCAnswerButton, .TFAnswerButton { min-width: 7rem; padding: 0.5rem 0.8rem; }
   .gap-input { width: 9rem; }
+}
+
+.MCAnswerButton:disabled,
+.TFAnswerButton:disabled {
+    cursor: default;
+    opacity: 0.8;
+}
+
+.MCAnswerButton.correct,
+.TFAnswerButton.correct {
+    background: green;
+    border-color: green;
+}
+
+.MCAnswerButton.incorrect,
+.TFAnswerButton.incorrect {
+    background: red;
+    border-color: red;
+}
+
+.explanation {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    border-radius: 8px;
+    color: var(--text-primary);
+}
+
+.explanation.correct {
+    background: rgba(0, 255, 0, 0.1);
+    border: 1px solid green;
+}
+
+.explanation.incorrect {
+    background: rgba(255, 0, 0, 0.1);
+    border: 1px solid red;
+}
+
+#xpBarContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  width: 100%;
+}
+
+.xp-bar-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.xp-label {
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  min-width: 8rem;
+}
+
+.xp-track {
+  flex: 1;
+  height: 10px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.xp-fill {
+  height: 100%;
+  background: var(--primary);
+  box-shadow: 0 0 6px var(--primary);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.xp-value {
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  min-width: 4rem;
+  text-align: right;
 }
 
