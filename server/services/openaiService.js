@@ -291,8 +291,55 @@ ${relevantContent}`
   };
 }
 
+async function checkAnswer(question, correctAnswer, userAnswer, type) {
+  const tools = [{
+    type: 'function',
+    function: {
+      name: 'submit_answer_result',
+      description: 'Submit the result of checking a user answer',
+      parameters: {
+        type: 'object',
+        properties: {
+          correct: { type: 'boolean', description: 'Whether the user answer is correct' },
+          feedback: { type: 'string', description: 'Short, friendly feedback explaining why the answer is correct or incorrect' }
+        },
+        required: ['correct', 'feedback'],
+        additionalProperties: false
+      }
+    }
+  }];
+
+  const prompt = type === 'gapText'
+    ? `The user answered a fill-in-the-blank question.
+Question: "${question}"
+Expected answers (one per gap): ${JSON.stringify(correctAnswer)}
+User answers (one per gap): ${JSON.stringify(userAnswer)}
+Check if the user answers are semantically correct for each gap. Minor spelling mistakes or synonyms should be accepted.`
+    : `The user answered an open-ended question.
+Question: "${question}"
+Expected answer: "${correctAnswer}"
+User answer: "${userAnswer}"
+Check if the user answer is semantically correct. It does not need to match word for word.`;
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages: [
+      { role: 'system', content: 'You are a quiz corrector. Evaluate the user answer and call the function with your verdict.' },
+      { role: 'user', content: prompt }
+    ],
+    tools,
+    tool_choice: { type: 'function', function: { name: 'submit_answer_result' } }
+  });
+
+  const toolCall = response.choices[0].message.tool_calls?.[0];
+  if (!toolCall) throw new Error('No tool call returned');
+
+  return JSON.parse(toolCall.function.arguments);
+}
+
 module.exports = {
   generateTopics,
   extractTopicContent,
   generateQuestion,
+  checkAnswer, 
 };

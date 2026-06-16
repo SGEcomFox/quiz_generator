@@ -18,6 +18,7 @@ function displayMultipleChoice(question, answers, correctAnswer, explanation, to
             answers.forEach((answer, index) => {
                 document.getElementById(`MCAnswer${index + 1}`).textContent = answer;
             });
+            console.log('storing correctAnswer index:', correctAnswer);
 
             qc.dataset.correctAnswer = correctAnswer;
             qc.dataset.explanation = explanation;
@@ -38,6 +39,7 @@ function displayFreeText(question, correctAnswer, explanation, topic) {
                     document.getElementById("freeTextQuestion").textContent = question;
             
                     // Store quiz data for later use
+                    qc.dataset.question = question;
                     qc.dataset.correctAnswer = correctAnswer;
                     qc.dataset.explanation = explanation;
                     qc.dataset.topic = topic;
@@ -65,6 +67,7 @@ function displayGapText(question, answers, explanation, topic) {
 
             document.getElementById("gapTextQuestion").innerHTML = renderedQuestion;
 
+            qc.dataset.question = question;
             qc.dataset.correctAnswers = JSON.stringify(answers);
             qc.dataset.explanation = explanation;
             qc.dataset.topic = topic;
@@ -98,13 +101,17 @@ function handleMultipleChoiceAnswer(button) {
     if (qc.dataset.answered === 'true') return; 
     lockQuestion(qc);
 
-    const correctAnswer = Number(qc.dataset.correctAnswer); // stored as index (0,1,2,3)
+    const correctAnswer = Number(qc.dataset.correctAnswer);
     const explanation = qc.dataset.explanation;
     const topic = allTopics.find(t => t.name === qc.dataset.topic);
 
-    // Find which index was clicked
-    const buttons = Array.from(qc.querySelectorAll('.mc-answer')); // adjust selector to match your HTML
-    const clickedIndex = buttons.indexOf(button);
+    const buttons = Array.from(qc.querySelectorAll('.MCAnswerButton'));
+    const clickedIndex = buttons.indexOf(button); // 👈 define first
+
+    console.log('correctAnswer from dataset:', correctAnswer);
+    console.log('clickedIndex:', clickedIndex);       // 👈 log after
+    console.log('buttons found:', buttons.length);
+
     const correct = clickedIndex === correctAnswer;
 
     // Highlight correct and wrong
@@ -158,58 +165,54 @@ function handleTrueFalseAnswer(button) {
 }
 
 
-function handleFreeTextSubmit() {
+async function handleFreeTextSubmit() {
     const qc = _qc();
     if (!qc) return;
+    if (qc.dataset.answered === 'true') return;
+
     const answerInput = document.getElementById('freeTextAnswer');
     if (!answerInput) return;
     const userAnswer = answerInput.value.trim();
 
-    // Get stored quiz data
     const correctAnswer = qc.dataset.correctAnswer;
-    const explanation = qc.dataset.explanation;
-
-    // Simple comparison (case-insensitive)
-    const correct = String(userAnswer).toLowerCase() === String(correctAnswer).toLowerCase();
-    const resultEl = qc.querySelector('.explanation') || (() => {
-        const e = document.createElement('div'); e.className = 'explanation'; qc.appendChild(e); return e;
-    })();
-    resultEl.textContent = correct ? 'Correct. ' + (explanation || '') : 'Incorrect. ' + (explanation || '');
-    console.log('Free Text answer submitted:', userAnswer, 'correct=', correct);
-}
-
-function handleGapTextSubmit() {
-    const qc = _qc();
-    if (!qc) return;
-    if (qc.dataset.answered === 'true') return; // 👈
-    lockQuestion(qc);    
-
-    // Collect inputs inserted into the question
-    const inputs = qc.querySelectorAll('.gap-input');
-    const userAnswers = Array.from(inputs).sort((a,b) => Number(a.dataset.index) - Number(b.dataset.index)).map(i => i.value.trim());
-
-    // Get stored quiz data (array of correct answers)
-    const correctAnswers = JSON.parse(qc.dataset.correctAnswers || '[]');
-    const explanation = qc.dataset.explanation;
+    const question = qc.dataset.question; // 👈 make sure you store this in displayFreeText
     const topic = allTopics.find(t => t.name === qc.dataset.topic);
 
-    // Compare answers (case-insensitive, trimmed)
-    let allCorrect = true;
-    for (let i = 0; i < correctAnswers.length; i++) {
-        const expected = String(correctAnswers[i] || '').toLowerCase().trim();
-        const actual = String(userAnswers[i] || '').toLowerCase().trim();
-        if (expected !== actual) { allCorrect = false; break; }
-    }
+    // Show loading state
+    showExplanation(qc, null, 'Checking your answer...');
 
-    const resultEl = qc.querySelector('.explanation') || (() => {
-        const e = document.createElement('div'); e.className = 'explanation'; qc.appendChild(e); return e;
-    })();
-    resultEl.textContent = allCorrect ? 'Correct. ' + (explanation || '') : 'Incorrect. ' + (explanation || '');
-    console.log('Gap Text answers submitted:', userAnswers, 'allCorrect=', allCorrect);
+    const result = await quizAPI.checkAnswer(question, correctAnswer, userAnswer, 'freeText');
 
-    if (correct) {
-        addXP(currentTopic, 10); // 👈 you'll need to track currentTopic
-    }
+    lockQuestion(qc);
+    showExplanation(qc, result.correct, result.feedback);
+
+    if (result.correct && topic) addXP(topic, 10);
+}
+
+async function handleGapTextSubmit() {
+    const qc = _qc();
+    if (!qc) return;
+    if (qc.dataset.answered === 'true') return;
+
+    const inputs = qc.querySelectorAll('.gap-input');
+    const userAnswers = Array.from(inputs)
+        .sort((a, b) => Number(a.dataset.index) - Number(b.dataset.index))
+        .map(i => i.value.trim());
+
+    const correctAnswers = JSON.parse(qc.dataset.correctAnswers || '[]');
+    const explanation = qc.dataset.explanation;
+    const question = qc.dataset.question; // 👈 make sure you store this in displayGapText
+    const topic = allTopics.find(t => t.name === qc.dataset.topic);
+
+    // Show loading state
+    showExplanation(qc, null, 'Checking your answer...');
+
+    const result = await quizAPI.checkAnswer(question, correctAnswers, userAnswers, 'gapText');
+    
+    lockQuestion(qc);
+    showExplanation(qc, result.correct, result.feedback);
+
+    if (result.correct && topic) addXP(topic, 10);
 }
 
 // Shared helper to show explanation below the question
@@ -220,8 +223,16 @@ function showExplanation(qc, correct, explanation) {
         resultEl.className = 'explanation';
         qc.appendChild(resultEl);
     }
-    resultEl.textContent = (correct ? '✓ Correct. ' : '✗ Incorrect. ') + (explanation || '');
-    resultEl.classList.add(correct ? 'correct' : 'incorrect');
+
+    // Loading state
+    if (correct === null) {
+        resultEl.className = 'explanation loading';
+        resultEl.textContent = explanation;
+        return;
+    }
+
+    resultEl.className = `explanation ${correct ? 'correct' : 'incorrect'}`;
+    resultEl.textContent = (correct ? '✓ ' : '✗ ') + explanation;
 }
 
 function lockQuestion(qc) {

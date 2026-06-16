@@ -46,6 +46,16 @@ class QuizAPI {
   async gradeExam(answers) {
     return this.request('/api/grade-exam', { answers });
   }
+
+  //check free-text and gap-text
+  async checkAnswer(question, correctAnswer, userAnswer, type) {
+    return this.request('/api/check-answer', {
+      question,
+      correctAnswer,
+      userAnswer,
+      type
+    });
+  }
 }
 
 // Create global instance

@@ -172,9 +172,21 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === '/api/check-answer' && req.method === 'POST') {
+      const body = await parseRequestBody(req);
+      const { question, correctAnswer, userAnswer, type } = body;
+
+      const result = await openaiService.checkAnswer(question, correctAnswer, userAnswer, type); // 👈 clean one-liner
+
+      res.writeHead(200);
+      res.end(JSON.stringify(result));
+      return;
+    }
+
     // 404
     res.writeHead(404);
     res.end(JSON.stringify({ error: 'Endpoint not found' }));
+
   } catch (error) {
     console.error('Server error:', error);
     if (error.message.includes('is required')) {
@@ -186,6 +198,7 @@ const server = http.createServer(async (req, res) => {
     }
   }
 });
+
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on http://localhost:${PORT}`);
